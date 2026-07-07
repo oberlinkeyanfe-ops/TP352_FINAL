@@ -37,7 +37,32 @@ console.log(`[INFO] Mode ${isProduction ? 'Production' : 'Development'}`);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// Dans index.js, remplacer app.use(cors()) par :
+
+const allowedOrigins = [
+    'https://banking-frontend-oktd.onrender.com',
+    'http://localhost:5173',
+    'https://tp352-final.onrender.com'
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Permettre les requêtes sans origin (comme les appels API)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.warn(`[CORS] Origin bloqué: ${origin}`);
+            callback(null, false);
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Afficher les origines autorisées pour le debug
+console.log('[CORS] Origines autorisées:', allowedOrigins);
 app.use(express.json());
 
 // ============================================================================
