@@ -20,6 +20,18 @@ const PLAFOND_MAX = 100000000;
 const PLAFOND_MIN = 0;
 
 // ============================================================================
+// FORCER LE MODE PRODUCTION (pour Render)
+// ============================================================================
+if (process.env.RENDER === 'true') {
+    process.env.NODE_ENV = 'production';
+    console.log('[INFO] Render détecté - Mode production forcé');
+}
+
+const isProduction = process.env.NODE_ENV === 'production';
+console.log(`[INFO] NODE_ENV = ${process.env.NODE_ENV}`);
+console.log(`[INFO] Mode ${isProduction ? 'Production' : 'Development'}`);
+
+// ============================================================================
 // INITIALISATION EXPRESS
 // ============================================================================
 const app = express();
@@ -31,7 +43,6 @@ app.use(express.json());
 // ============================================================================
 // CONFIGURATION BASE DE DONNEES (NEON + SQLite Local)
 // ============================================================================
-const isProduction = process.env.NODE_ENV === 'production';
 let db;
 
 const initDB = async () => {
@@ -41,21 +52,46 @@ const initDB = async () => {
         // ============================================================
         console.log('[INFO] Mode Production - Connexion a Neon (PostgreSQL)');
         
+        // Vérifier que DATABASE_URL est définie
+        if (!process.env.DATABASE_URL) {
+            console.error('[ERREUR] DATABASE_URL non definie en production');
+            console.error('[ERREUR] Ajoutez DATABASE_URL dans les variables d\'environnement Render');
+            process.exit(1);
+        }
+        
+        console.log('[INFO] DATABASE_URL: Definie');
+        // Cacher le mot de passe dans les logs
+        const maskedUrl = process.env.DATABASE_URL.replace(/:[^:]*@/, ':****@');
+        console.log(`[INFO] URL: ${maskedUrl}`);
+        
         const pool = new Pool({
             connectionString: process.env.DATABASE_URL,
             ssl: { rejectUnauthorized: false },
             max: 20,
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
+            connectionTimeoutMillis: 10000,
         });
 
         // Tester la connexion
         try {
             const client = await pool.connect();
             console.log('[INFO] Connexion Neon reussie');
+            
+            // Vérifier les données existantes
+            const userCount = await client.query('SELECT COUNT(*) FROM users');
+            console.log(`[INFO] Nombre d\'utilisateurs dans Neon: ${userCount.rows[0].count}`);
+            
+            const banksCount = await client.query('SELECT COUNT(*) FROM banks');
+            console.log(`[INFO] Nombre de banques dans Neon: ${banksCount.rows[0].count}`);
+            
             client.release();
         } catch (err) {
             console.error('[ERREUR] Connexion Neon:', err.message);
+            console.error('[ERREUR] Verifiez que:');
+            console.error('[ERREUR] 1. L\'URL est correcte');
+            console.error('[ERREUR] 2. Le projet Neon existe');
+            console.error('[ERREUR] 3. Le mot de passe est valide');
+            console.error('[ERREUR] 4. La base de donnees "banking_db" existe');
             process.exit(1);
         }
 
@@ -140,6 +176,8 @@ const initDB = async () => {
                 ['Administrateur', 'admin@banque.com', '0600000000', hashedPassword, 'ADMIN']
             );
             console.log('[INFO] Compte admin cree: admin@banque.com / Admin123!');
+        } else {
+            console.log('[INFO] Compte admin existe deja');
         }
 
         console.log('[INFO] Tables PostgreSQL initialisees');
@@ -232,6 +270,8 @@ const initDB = async () => {
                 ['Administrateur', 'admin@banque.com', '0600000000', hashedPassword, 'ADMIN']
             );
             console.log('[INFO] Compte admin cree: admin@banque.com / Admin123!');
+        } else {
+            console.log('[INFO] Compte admin existe deja');
         }
 
         console.log('[INFO] Tables SQLite initialisees');
@@ -583,7 +623,6 @@ app.post('/api/accounts', verifyToken, [
             );
             account = result.rows[0];
             
-            // Récupérer le nom de la banque
             const bankResult = await db.query(
                 `SELECT name, code FROM banks WHERE id = $1`,
                 [bankId]
@@ -835,7 +874,6 @@ app.post('/api/accounts/deposit', verifyToken, [
             await db.query('UPDATE accounts SET balance = $1 WHERE id = $2', [newBalance, accountId]);
             await db.query('COMMIT');
         } else {
-            // SQLite n'a pas de transactions dans ce contexte
             await db.run('UPDATE accounts SET balance = ? WHERE id = ?', [newSourceBalance, sourceAccount.id]);
             await db.run('UPDATE accounts SET balance = ? WHERE id = ?', [newBalance, accountId]);
         }
@@ -1959,6 +1997,42 @@ app.get('/api/health', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ status: 'ERROR', message: error.message });
+    }
+});
+
+app.get('/api/db-info', async (req, res) => {
+    try {
+        let info;
+        if (isProduction) {
+            const versionResult = await db.query('SELECT version() as version, current_database() as database');
+            const usersCount = await db.query('SELECT COUNT(*) as count FROM users');
+            const banksCount = await db.query('SELECT COUNT(*) as count FROM banks');
+            const accountsCount = await db.query('SELECT COUNT(*) as count FROM accounts');
+            
+            info = {
+                type: 'PostgreSQL (Neon)',
+                version: versionResult.rows[0].version,
+                database: versionResult.rows[0].database,
+                tables: {
+                    users: usersCount.rows[0].count,
+                    banks: banksCount.rows[0].count,
+                    accounts: accountsCount.rows[0].count
+                }
+            };
+        } else {
+            info = {
+                type: 'SQLite (Memory)',
+                database: ':memory:',
+                tables: {
+                    users: (await db.get('SELECT COUNT(*) as count FROM users'))?.count || 0,
+                    banks: (await db.get('SELECT COUNT(*) as count FROM banks'))?.count || 0,
+                    accounts: (await db.get('SELECT COUNT(*) as count FROM accounts'))?.count || 0
+                }
+            };
+        }
+        res.json(info);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
