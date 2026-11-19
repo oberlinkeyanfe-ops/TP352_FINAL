@@ -1,6 +1,6 @@
 # Banque UY1: full-stack banking app
 
-A banking web application with a Node.js backend and a Vue.js frontend, built for the INF352 course at the University of Yaoundé I. It follows the Spring Boot version in [TP352](https://github.com/oberlinkeyanfe-ops/TP352).
+A banking web application with a Node.js backend and a Vue.js frontend, built for the INF352 course at the University of Yaoundé I. It follows the Spring Boot version in [banking-app-testing](https://github.com/oberlinkeyanfe-ops/banking-app-testing).
 
 Version française plus bas.
 
